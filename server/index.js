@@ -1,6 +1,9 @@
 import express from "express";
 const app = express();
 import cors from "cors";
+import { keccak256 } from "ethereum-cryptography/keccak";
+import { utf8ToBytes } from "ethereum-cryptography/utils";
+import { secp256k1 } from "ethereum-cryptography/secp256k1";
 const port = 3042;
 
 app.use(cors());
@@ -21,19 +24,56 @@ app.get("/balance/:address", (req, res) => {
 app.post("/send", (req, res) => {
   // TODO: get a signature from the client-side application
   // recover the public address from the signature
-  
-  const { sender, recipient, amount } = req.body;
+  console.log("✅ Server received request");
+  try {
 
-  setInitialBalance(sender);
-  setInitialBalance(recipient);
-
-  if (balances[sender] < amount) {
-    res.status(400).send({ message: "Not enough funds!" });
-  } else {
-    balances[sender] -= amount;
-    balances[recipient] += amount;
-    res.send({ balance: balances[sender] });
+  // 1. reconstruct the transactionMsg
+  const { sender, recipient, amount, signature } = req.body;
+  const transactionMsg = {
+    sender,
+    recipient,
+    amount
   }
+
+  // 2. convert the transactionMsg to JSON string for utf8ToBytes
+  const jsonMsg = JSON.stringify(transactionMsg);
+
+  // 3. hash the transaction message with keccak256
+  // utf8ToBytes because keccak256 expects raw bytes not json string
+  const hashedMsg = keccak256(utf8ToBytes(jsonMsg));
+
+  // 5. extract the signature values and convert them back to BigInt
+  const rHex = r;
+  const sHex = s;
+
+  console.log(typeof rHex);
+  console.log(typeof sHex);
+
+
+  // 6. create a secp256k1 signature using the existing rBigInt, sBigInt and the recovery sent from the client
+  const signObj = secp256k1.sign(r, s, signature.recovery);
+  console.log("hello")
+  
+  // 7. recover the public key from the signature
+  const recoveredPublicKey = secp256k1.recoverPublicKey(hashedMsg, signObj, signature.recovery);
+
+  // 8. convert the public key to ethereum style address
+  const publicKeyAddress = recoveredPublicKey.slice(1);
+  const addressHash = keccak256(publicKeyAddress);
+  const address = `0x${bytesToHex(addressHash).slice(-40)}`;
+
+  // 9. compare recovered address with the sender
+  if (address.toLowerCase() !== sender.toLowerCase()) {
+    return res.status(400).send({ message: "Recovered address does not match the sender!" });
+  }
+  
+  // send success response
+  return res.status(200).send({ message: "✅ Signature verified successfully!" });
+} catch {
+  // send error response
+  console.log("❌ Signature verification failed")
+  return res.status(400).send({ message: `Signature verification failed`});
+}
 });
 
 app.listen(port, () => {
